@@ -46,3 +46,34 @@ async def get_entity(
         properties=entity.properties,
         related_entities=related
     )
+
+@router.get("/recent", response_model=list)
+async def get_recent_memories(
+    limit: int = 10,
+    source_type: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get most recent chunks/memories. Useful for verifying learning.
+    """
+    from app.models import DocumentChunk
+    from sqlalchemy import desc
+    
+    query = select(DocumentChunk).order_by(desc(DocumentChunk.created_at)).limit(limit)
+    
+    if source_type:
+        query = query.where(DocumentChunk.source_type == source_type)
+        
+    result = await db.execute(query)
+    chunks = result.scalars().all()
+    
+    return [
+        {
+            "id": c.id,
+            "content": c.content,
+            "source_type": c.source_type,
+            "created_at": c.created_at,
+            "metadata": c.metadata
+        }
+        for c in chunks
+    ]

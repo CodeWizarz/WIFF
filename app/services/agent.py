@@ -1,20 +1,16 @@
-from openai import AsyncOpenAI
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Tuple
-from app.config import settings
-from app.services.retrieval import RetrievalService
-from app.models import InteractionLog
-from app.schemas import ContextChunk
+from app.services.learning import LearnerService
+import asyncio
 
 class AgentService:
     """
     Orchestrates the agent loop:
-    Retrieval -> Prompt Engineering -> LLM -> Response -> Logging
+    Retrieval -> Prompt Engineering -> LLM -> Response -> Logging -> Learning
     """
     
     def __init__(self):
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.retrieval_service = RetrievalService()
+        self.learning_service = LearnerService()
         self.model = settings.llm_model
     
     async def run_agent(
@@ -39,8 +35,21 @@ class AgentService:
         # 3. Call LLM
         response_text = await self._call_llm(system_prompt, user_prompt)
         
-        # 4. Log Interaction (Async/Fire-and-forget in production)
+        # 4. Log Interaction & Learn (Pseudo-background)
         await self._log_interaction(db, query, context_chunks, response_text, session_id)
+        
+        # Trigger learning service
+        # In production, use BackgroundTasks or Celery. Here we await it 
+        # or use asyncio.create_task if loop allows.
+        # To avoid blocking the response significantly, we should ideally background it.
+        # But we need the DB session... which is a challenge if we spawn.
+        # For this prototype, we'll run it purely sequentially to ensure data integrity.
+        try:
+            await self.learning_service.learn_from_interaction(
+                db, query, response_text, session_id
+            )
+        except Exception as e:
+            print(f"Learning failed: {e}")
         
         return response_text, context_chunks, total_tokens
     
@@ -53,19 +62,63 @@ Your goal is to answer the user's query accurately using the provided context.
 - Be concise and direct."""
 
     def _build_user_prompt(self, query: str, context_chunks: List[ContextChunk]) -> str:
-        context_str = "\n\n".join([
-            f"--- [Timestamp: {c.created_at}] [Source: {c.source_type}] ---\n{c.content}"
-            for c in context_chunks
-        ])
-        
         if not context_chunks:
-            context_str = "(No relevant memory found)"
-            
-        return f"""Relevant Context from Memory:
-{context_str}
+            return f"""Relevant Context from Memory:
+(No relevant memory found)
 
 User Query:
 {query}"""
+
+        formatted_context = self._format_context(context_chunks)
+            
+        return f"""Relevant Context from Memory:
+{formatted_context}
+
+User Query:
+{query}"""
+
+    def _format_context(self, chunks: List[ContextChunk]) -> str:
+        """
+        Format context chunks into structured XML sections.
+        Groups by source_type and sorts by date/importance.
+        """
+        # Buckets
+        facts = []
+        history = []
+        procedures = []
+        others = []
+        
+        for c in chunks:
+            # Format: [YYYY-MM-DD] Content
+            date_str = c.created_at.strftime("%Y-%m-%d")
+            entry = f"[{date_str}] {c.content.strip()}"
+            
+            st = c.source_type
+            if st == "learned_fact":
+                facts.append(entry)
+            elif st == "episode" or st == "conversation":
+                history.append(entry)
+            elif st == "procedure":
+                procedures.append(entry)
+            else:
+                others.append(entry)
+        
+        # Build XML
+        sections = []
+        
+        if facts:
+            sections.append("<facts>\n- " + "\n- ".join(facts) + "\n</facts>")
+            
+        if history:
+            sections.append("<relevant_history>\n- " + "\n- ".join(history) + "\n</relevant_history>")
+            
+        if procedures:
+            sections.append("<suggested_procedures>\n- " + "\n- ".join(procedures) + "\n</suggested_procedures>")
+            
+        if others:
+            sections.append("<general_context>\n- " + "\n- ".join(others) + "\n</general_context>")
+            
+        return "<memory_context>\n" + "\n\n".join(sections) + "\n</memory_context>"
 
     async def _call_llm(self, system_prompt: str, user_prompt: str) -> str:
         response = await self.client.chat.completions.create(

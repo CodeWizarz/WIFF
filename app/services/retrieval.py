@@ -69,25 +69,22 @@ class RetrievalService:
     ) -> List[Tuple[DocumentChunk, float]]:
         """
         Perform vector similarity search using pgvector.
-        Returns: List of (DocumentChunk, distance)
+        Returns: List of (DocumentChunk, score 0..1)
         """
-        # Note: pgvector <-> operator returns Euclidean distance. 
-        # For normalized embeddings (OpenAI), Cosine Distance = Euclidean Distance^2 / 2
-        # We'll use <=> operator (cosine distance) if available, or just order by.
-        # pgvector supports <=> for cosine distance directly.
+        # Distance metric: Cosine Distance (<=>)
+        # We want Similarity = 1 - Distance
+        distance_col = DocumentChunk.embedding.cosine_distance(query_embedding).label("distance")
         
-        stmt = select(DocumentChunk).order_by(
-            DocumentChunk.embedding.cosine_distance(query_embedding)
+        stmt = select(DocumentChunk, distance_col).order_by(
+            distance_col
         ).limit(limit)
         
         result = await db.execute(stmt)
-        chunks = result.scalars().all()
+        # Returns list of (DocumentChunk, distance)
+        rows = result.all()
         
-        # Calculate similarity manually or fetch distance in query if needed
-        # For MVP, we'll re-calculate cosine similarity in Python for scoring accuracy
-        # or trust the ranking. Let's return the objects first.
-        
-        return chunks
+        # Convert distance to similarity score
+        return [(row[0], 1.0 - row[1]) for row in rows]
 
     async def _graph_search(
         self,
@@ -111,7 +108,6 @@ class RetrievalService:
             return set()
             
         # Find 1-hop neighbors via Relationships
-        # Query: Get target entities where source is in start_ids
         stmt_related = select(Entity.entity_name).join(
             Relationship, Relationship.target_id == Entity.id
         ).where(
@@ -123,7 +119,7 @@ class RetrievalService:
 
     def _rank_chunks(
         self,
-        chunks: List[DocumentChunk],
+        vector_results: List[Tuple[DocumentChunk, float]],
         related_entity_names: Set[str],
         direct_entity_names: List[str]
     ) -> List[ContextChunk]:
@@ -133,37 +129,30 @@ class RetrievalService:
         """
         scored = []
         now = datetime.utcnow()
-        
-        # Pre-calculate entity set for faster lookup
         relevant_entities = related_entity_names.union(set(direct_entity_names))
         
-        for chunk in chunks:
-            # 1. Semantic Score (placeholder, assume ordered list implies score, 
-            # ideally we pass actual scores from vector DB)
-            # For MVP, we'll approximate score based on rank or use 1.0 down to 0.5
-            # Better: If we had the query embedding here, we'd calc dot product.
-            # Let's assume chunks come in roughly sorted order of relevance.
-            # *Correction*: We need the actual similarity score. 
-            # For this MVP code, I'll assign a simplified rank-based score 
-            # decreasing from 1.0 to 0.5 to keep it fast without re-embedding.
-            semantic_score = 1.0  # Needs refinement in production
+        # Map DB objects to scored objects
+        for chunk, semantic_sim in vector_results:
+            # 1. Semantic Score (from vector search)
+            semantic_score = max(0.0, semantic_sim)
             
             # 2. Recency Score (Exponential decay)
             # 1.0 for now, 0.5 after 30 days
-            age_days = (now - chunk.created_at).days
+            age_days = max(0, (now - chunk.created_at).days)
             recency_score = math.exp(-age_days / 30.0)
             
             # 3. Graph Score
-            # Check if chunk mentions any relevant entities
-            # This is a heuristic: does the chunk text contain the entity name?
-            # In a real system, we'd link chunks to entities in a join table.
+            # Boost if chunk mentions relevant entities
             graph_score = 0.0
             found_entities = 0
+            chunk_lower = chunk.content.lower()
+            
             for name in relevant_entities:
-                if name.lower() in chunk.content.lower():
+                if name.lower() in chunk_lower:
                     found_entities += 1
             
             if found_entities > 0:
+                # Diminishing returns for multiple matches
                 graph_score = min(1.0, 0.2 * found_entities)
             
             # Total Score
@@ -182,7 +171,38 @@ class RetrievalService:
             ))
             
         # Sort by final score descending
-        return sorted(scored, key=lambda x: x.score, reverse=True)
+        ranked = sorted(scored, key=lambda x: x.score, reverse=True)
+        
+        # Conflict Resolution / Diversity Filtering
+        return self._resolve_conflicts(ranked)
+        
+    def _resolve_conflicts(self, ranked_chunks: List[ContextChunk]) -> List[ContextChunk]:
+        """
+        Filter out near-duplicates. Keep the highest scored one.
+        Assumes chunks are ALREADY sorted by score descending.
+        """
+        filtered = []
+        seen_content = [] # Store contents to check similarity
+        
+        for chunk in ranked_chunks:
+            is_dup = False
+            for seen in seen_content:
+                # Simple containment or high Jaccard for text overlap
+                # For strict performance, use Hash if available (Phase 7 added content_hash)
+                # But here we only have ContextChunk... we assume distinct IDs.
+                
+                # Check 1: Exact subset?
+                if chunk.content in seen or seen in chunk.content:
+                    # If heavily overlapping, assumption: higher score (earlier in list) is better.
+                    # Skip this one.
+                    is_dup = True
+                    break
+            
+            if not is_dup:
+                filtered.append(chunk)
+                seen_content.append(chunk.content)
+                
+        return filtered
 
     def _pack_context(
         self,
