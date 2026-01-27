@@ -1,18 +1,22 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from app.models import DocumentChunk, Entity, Relationship
 from app.services.chunker import DocumentChunker
 from app.services.embeddings import EmbeddingService
 from app.services.entity_extractor import EntityExtractor
+from app.services.quality import QualityFilter
+from app.services.dedup import DeDuplicationService
 
 class IngestionService:
-    """Orchestrates document ingestion pipeline"""
+    """Orchestrates document ingestion pipeline with Q&A and Dedup"""
     
     def __init__(self):
         self.chunker = DocumentChunker()
         self.embedding_service = EmbeddingService()
         self.entity_extractor = EntityExtractor()
+        self.quality_filter = QualityFilter()
+        self.dedup_service = DeDuplicationService()
     
     async def ingest_document(
         self,
@@ -21,25 +25,48 @@ class IngestionService:
         source_type: str,
         source_id: str = None,
         metadata: Dict[str, Any] = None
-    ) -> List[int]:
+    ) -> Tuple[List[int], str]:
         """
-        Ingest a document: chunk, embed, store, extract entities.
+        Ingest a document: Quality -> Dedup -> Chunk -> Dedup(Chunk) -> Store -> Graph
+        """
+        # 1. Quality Gate
+        if not self.quality_filter.is_worth_storing(content):
+            return [], "Skipped: Low quality content"
         
-        Returns:
-            List of chunk IDs
-        """
-        # Step 1: Chunk the document
+        # 2. Global Deduplication (Exact Hash)
+        doc_hash = self.dedup_service.compute_hash(content)
+        # We don't have a "Document" table, but we can check if any chunk has this source_id 
+        # or just rely on chunk-level dedup.
+        # For MVP, let's skip doc-level check unless we store full docs.
+        # Proceed to chunking.
+        
+        # 3. Chunking
         chunks = self.chunker.chunk(content)
         
-        # Step 2: Generate embeddings (batch)
+        # 4. Process Chunks (Embed + Dedup)
+        # Note: We need to embed first to check semantic duplicates
         embeddings = await self.embedding_service.embed_batch(chunks)
         
-        # Step 3: Store chunks in vector store
         chunk_ids = []
+        skipped_count = 0
+        
         for chunk_text, embedding in zip(chunks, embeddings):
+            # A. Exact Chunk Deduplication
+            chunk_hash = self.dedup_service.compute_hash(chunk_text)
+            if await self.dedup_service.is_duplicate(db, chunk_hash):
+                skipped_count += 1
+                continue
+                
+            # B. Semantic Deduplication (Optional - expensive)
+            # if await self.dedup_service.is_near_duplicate(db, embedding):
+            #    skipped_count += 1
+            #    continue
+            
+            # Store
             chunk = DocumentChunk(
                 content=chunk_text,
                 embedding=embedding,
+                content_hash=chunk_hash,
                 source_type=source_type,
                 source_id=source_id,
                 metadata=metadata or {}
@@ -50,11 +77,14 @@ class IngestionService:
         
         await db.commit()
         
-        # Step 4: Extract entities (async, non-blocking for MVP)
-        # In production, this would be a background job
+        if not chunk_ids:
+            return [], f"Skipped: All {len(chunks)} chunks were duplicates"
+
+        # 5. Extract Entities (Async/Background in production)
+        # We pass the full content for extraction, or could pass chunks
         await self._extract_and_store_entities(db, content, chunk_ids)
         
-        return chunk_ids
+        return chunk_ids, "Success"
     
     async def _extract_and_store_entities(
         self,

@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import AgentRequest, AgentResponse
+from app.services.agent import AgentService
 
 router = APIRouter()
+agent_service = AgentService()
 
 @router.post("/", response_model=AgentResponse)
 async def agent_query(
@@ -12,12 +14,19 @@ async def agent_query(
 ):
     """
     Agent endpoint with memory-augmented responses.
-    
-    This endpoint will be implemented in Phase 5.
     """
-    # Placeholder for agent loop
-    return AgentResponse(
-        response="Agent not yet implemented",
-        context_used=[],
-        total_tokens=0
-    )
+    try:
+        response_text, context_used, total_tokens = await agent_service.run_agent(
+            db=db,
+            query=request.query,
+            token_budget=request.token_budget,
+            session_id=request.session_id
+        )
+        
+        return AgentResponse(
+            response=response_text,
+            context_used=context_used,
+            total_tokens=total_tokens
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Agent failed: {str(e)}")

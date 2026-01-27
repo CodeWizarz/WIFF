@@ -13,6 +13,9 @@ class DocumentChunk(Base):
     content = Column(Text, nullable=False)
     embedding = Column(Vector(settings.embedding_dim), nullable=False)
     
+    # Deduplication
+    content_hash = Column(String(64), index=True)
+    
     # Metadata
     source_type = Column(String(50), nullable=False)  # 'document', 'conversation'
     source_id = Column(String(255), index=True)
