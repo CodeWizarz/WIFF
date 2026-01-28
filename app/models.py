@@ -16,10 +16,13 @@ class DocumentChunk(Base):
     # Deduplication
     content_hash = Column(String(64), index=True)
     
+    metadata_ = Column("metadata", JSONB, default={}) # Using quoted name for SQL column, but mapped to something else? 
+    # Actually simpler to just rename the attribute and column together.
+    
     # Metadata
     source_type = Column(String(50), nullable=False)  # 'document', 'conversation'
     source_id = Column(String(255), index=True)
-    metadata = Column(JSONB, default={})
+    doc_metadata = Column(JSONB, default={})
     
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
@@ -56,7 +59,7 @@ class Relationship(Base):
     relationship_type = Column(String(100), nullable=False)  # 'mentions', 'related_to', etc.
     strength = Column(Float, default=1.0)  # Co-occurrence weight
     
-    metadata = Column(JSONB, default={})
+    rel_metadata = Column(JSONB, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

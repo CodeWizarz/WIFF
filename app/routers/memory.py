@@ -73,7 +73,7 @@ async def get_recent_memories(
             "content": c.content,
             "source_type": c.source_type,
             "created_at": c.created_at,
-            "metadata": c.metadata
+            "doc_metadata": c.doc_metadata
         }
         for c in chunks
     ]

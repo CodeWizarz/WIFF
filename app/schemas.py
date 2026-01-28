@@ -7,7 +7,7 @@ class IngestDocumentRequest(BaseModel):
     content: str = Field(..., description="Raw document text")
     source_type: str = Field(default="document", description="Type: 'document' or 'conversation'")
     source_id: Optional[str] = Field(None, description="Unique identifier for the source")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    doc_metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 class IngestDocumentResponse(BaseModel):
     chunk_ids: List[int]
@@ -26,6 +26,7 @@ class ContextChunk(BaseModel):
     score: float
     source_type: str
     created_at: datetime
+    doc_metadata: Dict[str, Any] = {}
 
 class QueryResponse(BaseModel):
     context_chunks: List[ContextChunk]

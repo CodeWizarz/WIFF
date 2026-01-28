@@ -23,7 +23,7 @@ def test_system():
         res = requests.post(f"{BASE_URL}/ingest/document", json={
             "content": "CONFIDENTIAL: The internal code name for Project X is Chimera. It uses a Rust backend.",
             "source_type": "document",
-            "metadata": {"level": "top_secret"}
+            "doc_metadata": {"level": "top_secret"}
         })
         res.raise_for_status()
         print_success(f"Ingestion successful: {res.json()}")

@@ -88,21 +88,30 @@ If not running:
 docker compose up -d
 ```
 
+## Quick Demos
+
+### 1. Standalone Agent Flow (Mocked)
+Run the end-to-end flow demo without any database dependencies:
+```bash
+python app/services/agent_flow_demo.py
+```
+
+### 2. Real Agent Verification
+Run the actual agent against the local database (requires Docker):
+```bash
+python verify_agent_real.py
+```
+
 ## What's Implemented
+✅ **Core Architecture:**
+- **Hybrid Retrieval**: Vector (pgvector) + Graph (Entities) search.
+- **Agent Orchestration**: Specialized `AgentService` with memory context injection.
+- **Context Drift Mitigation**: `QueryTransformer` rewrites queries based on history.
+- **Learning Loop**: Background synthesis of interactions into new facts.
 
-✅ **Phase 1-2 Complete:**
-- FastAPI backend structure
-- Document chunking (fixed-size with overlap)
-- OpenAI embeddings integration
-- Vector storage (pgvector)
-- Graph storage (Postgres adjacency list)
-- Entity extraction via LLM
-- Ingestion pipeline endpoint
-
-🚧 **Coming Next:**
-- Context retrieval engine (vector + graph hybrid)
-- Agent orchestration with LLM
-- Memory quality improvements (entity consolidation, decay)
+🚧 **In Progress:**
+- Advanced conflict resolution for conflicting memories.
+- User-level partitioning and multi-tenancy.
 
 ## Project Status
 

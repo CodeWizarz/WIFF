@@ -1,4 +1,12 @@
+from openai import AsyncOpenAI
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Tuple
+from app.config import settings
+from app.services.retrieval import RetrievalService
+from app.models import InteractionLog
+from app.schemas import ContextChunk
 from app.services.learning import LearnerService
+from app.services.query_transformer import QueryTransformer
 import asyncio
 
 class AgentService:
@@ -11,6 +19,7 @@ class AgentService:
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.retrieval_service = RetrievalService()
         self.learning_service = LearnerService()
+        self.query_transformer = QueryTransformer()
         self.model = settings.llm_model
     
     async def run_agent(
@@ -23,9 +32,17 @@ class AgentService:
         """
         Run the full agent loop.
         """
-        # 1. Retrieve Context
+        # 0. Query Rewriting (Context Drift Mitigation)
+        # Note: In a real app, we would fetch recent chat history using session_id here.
+        # For now, we pass empty history, effectively a no-op unless we extend the signature.
+        # But the infrastructure is now in place.
+        rewritten_query = await self.query_transformer.rewrite_query(query, [])
+        if rewritten_query != query:
+            print(f"Rewritten Query: '{query}' -> '{rewritten_query}'")
+            
+        # 1. Retrieve Context (using rewritten query)
         context_chunks, total_tokens = await self.retrieval_service.retrieve_context(
-            db, query, token_budget, session_id
+            db, rewritten_query, token_budget, session_id
         )
         
         # 2. Construct Prompt

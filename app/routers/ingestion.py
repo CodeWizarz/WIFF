@@ -1,4 +1,4 @@
-from fastapi import Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas import IngestDocumentRequest, IngestDocumentResponse
@@ -52,7 +52,7 @@ async def ingest_document(
             content=request.content,
             source_type=request.source_type,
             source_id=request.source_id,
-            metadata=request.metadata
+            metadata=request.doc_metadata
         )
         
         return IngestDocumentResponse(

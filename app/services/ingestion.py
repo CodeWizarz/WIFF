@@ -69,7 +69,7 @@ class IngestionService:
                 content_hash=chunk_hash,
                 source_type=source_type,
                 source_id=source_id,
-                metadata=metadata or {}
+                doc_metadata=metadata or {}
             )
             db.add(chunk)
             await db.flush()
