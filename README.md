@@ -38,5 +38,48 @@ If this were the engine behind **Hyperspell**:
 - **"Remember This"**: The *Learning* service is the backend for the "Remember this preference?" feature.
 - **Context Awareness**: The *Query Transformer* ensures that when a user highlights code and says "refactor", the retrieval engine sees "Refactor the `User` class in `models.py`".
 
+## Decision Intelligence System (v2 Upgrade)
+Moving beyond simple RAG, the system now features a **Multi-Agent Decision Pipeline** designed for high-stakes enterprise scenarios where "probably right" isn't good enough.
+
+### Architecture Flow
+The `DecisionEngine` orchestrates a linear pipeline of specialized agents:
+
+```mermaid
+graph LR
+    User[User Query] --> A[Retrieval]
+    A --> B[Synthesis Agent]
+    B -->|Proposals| C[Critic Agent]
+    C -->|Critiques| D[Scoring Service]
+    D -->|Calibrated Scores| E[Supervisor Agent]
+    E -->|Final Result + Audit| UI[Decision UI]
+    
+    subgraph Governance
+    E -.->|High Risk| H[Human Approval]
+    H -->|Feedback| Mem[Memory Store]
+    end
+```
+
+1.  **Retrieval**: Fetches relevant facts/memories.
+2.  **Synthesis (The Builder)**: Generates 2-4 viable options. *Focus: Creativity & solutioning.*
+3.  **Critic (The Skeptic)**: Reviews options for hallucinations or weak evidence. *Focus: Safety & verification.*
+4.  **Scoring (The Actuary)**: Calibrates confidence scores based on evidence density and recency. *Focus: Normalization.*
+5.  **Supervisor (The Boss)**: Selects the best option and enforces governance rules (e.g., auto-approve vs. pending). *Focus: Strategy & compliance.*
+
+### Real-World Use Cases
+-   **Architecture Review**: Choosing between AWS Lambda vs. Fargate based on memory of past project constraints.
+-   **Security Triage**: Deciding whether to block an IP based on threat intellgence (memory) and impact analysis.
+-   **Compliance**: Automating routine approvals while flagging edge cases for human officer review.
+
+### Trade-offs & Limitations
+| Trade-off | Choice | Consequence |
+| :--- | :--- | :--- |
+| **Speed vs. Reliability** | **Reliability** | The Multi-Agent pipeline adds latency (3-5 LLM calls). This is acceptable for decisions that take minutes/hours for humans, but not for real-time chat. |
+| **Confidence vs. Safety** | **Pessimism** | We intentionally penalize confidence (via Scoring & Critic) to avoid "confident hallucinations." This leads to more "Pending Review" states but fewer catastrophic errors. |
+| **Flexibility vs. Audit** | **Structured** | Usage of forced JSON schemas limits the "chatty" nature but enables rigorous audit logging and programmatic API consumption. |
+
+### Governance & Feedback Loop
+-   Decisions with **<80% confidence** or **High Impact** trigger a `PENDING` state.
+-   User feedback (Approve/Reject) is **ingested back into memory**, creating a reinforcement loop where the system learns from its rejection.
+
 ---
 *Built for the 2025 Deepmind Agentic Coding Challenge.*
