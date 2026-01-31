@@ -48,6 +48,19 @@ class DecisionProposal(BaseModel):
     supporting_evidence: List[DecisionEvidence] = Field(..., description="Evidence backing this proposal")
     critique: Optional[str] = Field(None, description="Validation notes and risks identified by the Critic Agent")
 
+from datetime import datetime, timezone
+
+class DecisionStatus(str, Enum):
+    APPROVED = "approved"     # High confidence, auto-approved
+    PENDING = "pending"       # Low confidence, requires human review
+    REJECTED = "rejected"     # Rejected by user
+
+class AuditEvent(BaseModel):
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="When this event occurred")
+    agent: str = Field(..., description="Name of the agent (e.g., 'Critic', 'Supervisor')")
+    action: str = Field(..., description="Action taken (e.g., 'Critique', 'Ranking')")
+    details: str = Field(..., description="Description of the action and its reasoning")
+
 class DecisionResult(BaseModel):
     """
     The final output of a decision process.
@@ -56,7 +69,9 @@ class DecisionResult(BaseModel):
     Encapsulates the entire decision context, allowing for audit trails and replayability.
     """
     decision_id: str = Field(..., description="Unique ID for this decision event")
+    status: DecisionStatus = Field(..., description="Current governance state")
     context_summary: str = Field(..., description="Summary of the inputs/state")
     proposals: List[DecisionProposal] = Field(..., description="Ranked options")
     selected_proposal_id: Optional[str] = Field(None, description="The recommendation or user selection")
     meta_analysis: str = Field(..., description="High-level reasoning over the options")
+    audit_trail: List[AuditEvent] = Field(default_factory=list, description="Log of agent actions for trust and governance")

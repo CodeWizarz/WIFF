@@ -1,6 +1,6 @@
 from typing import List
 import uuid
-from app.domain.decisions import DecisionProposal, DecisionResult
+from app.domain.decisions import DecisionProposal, DecisionResult, AuditEvent, DecisionStatus
 
 class SupervisorAgent:
     """
@@ -26,14 +26,15 @@ class SupervisorAgent:
         self,
         query: str,
         proposals: List[DecisionProposal],
-        context_summary: str
+        context_summary: str,
+        audit_trail: List[AuditEvent]
     ) -> DecisionResult:
         """
         Consolidate synthesis and critique into a final result.
         """
         
         if not proposals:
-            return self._create_empty_result(query)
+            return self._create_empty_result(query, audit_trail)
 
         # 1. Rank Decisions
         # Prioritize high confidence (adjusted by critic) and check impact.
@@ -60,10 +61,12 @@ class SupervisorAgent:
 
         return DecisionResult(
             decision_id=str(uuid.uuid4()),
+            status=DecisionStatus.PENDING if needs_approval else DecisionStatus.APPROVED,
             context_summary=context_summary,
             proposals=ranked_proposals,
             selected_proposal_id=selected_proposal.id,
-            meta_analysis=meta_analysis
+            meta_analysis=meta_analysis,
+            audit_trail=audit_trail
         )
 
     def _get_confidence(self, proposal: DecisionProposal) -> float:
@@ -95,11 +98,13 @@ class SupervisorAgent:
             
         return analysis
 
-    def _create_empty_result(self, query: str) -> DecisionResult:
+    def _create_empty_result(self, query: str, audit_trail: List[AuditEvent]) -> DecisionResult:
         return DecisionResult(
             decision_id=str(uuid.uuid4()),
+            status=DecisionStatus.PENDING,
             context_summary=f"No viable options found for: {query}",
             proposals=[],
             selected_proposal_id=None,
-            meta_analysis="Insufficient information to generate proposals."
+            meta_analysis="Insufficient information to generate proposals.",
+            audit_trail=audit_trail
         )
