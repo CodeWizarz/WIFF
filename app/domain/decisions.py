@@ -46,6 +46,7 @@ class DecisionProposal(BaseModel):
     impact: ImpactLevel = Field(..., description="Estimated magnitude of effect")
     scores: List[DecisionScore] = Field(..., description="Evaluations of this proposal")
     supporting_evidence: List[DecisionEvidence] = Field(..., description="Evidence backing this proposal")
+    critique: Optional[str] = Field(None, description="Validation notes and risks identified by the Critic Agent")
 
 class DecisionResult(BaseModel):
     """
